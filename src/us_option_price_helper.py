@@ -4,15 +4,13 @@ US Option Price Helper - Futu API Integration
 Provides price and multiplier data for US options using Futu API
 """
 
-from typing import Optional, Tuple
-from loguru import logger
-
-try:
-    from .config import settings
-except (ImportError, ValueError):
-    from config import settings
 import re
 from datetime import datetime
+from typing import Optional, Tuple
+
+from loguru import logger
+
+from src.config import settings
 
 
 def parse_us_option_description(description: str) -> Optional[dict]:

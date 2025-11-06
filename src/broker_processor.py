@@ -3,26 +3,20 @@ Core broker statement processor module.
 Contains the main business logic for processing broker statements and orchestrating the workflow.
 """
 
+import re
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+
 from loguru import logger
-import re
-try:
-    from .pdf_processor import PDFProcessor
-    from .excel_parser import ExcelPositionParser
-    from .price_fetcher import PriceFetcher, get_stock_price
-    from .utils import setup_logging, validate_date_format, print_asset_summary, get_option_multiplier
-    from .config import settings
-    from .exchange_rate_handler import exchange_handler
-except (ImportError, ValueError):
-    from pdf_processor import PDFProcessor
-    from excel_parser import ExcelPositionParser
-    from price_fetcher import PriceFetcher, get_stock_price
-    from utils import setup_logging, validate_date_format, print_asset_summary, get_option_multiplier
-    from config import settings
-    from exchange_rate_handler import exchange_handler
+
+from src.pdf_processor import PDFProcessor
+from src.excel_parser import ExcelPositionParser
+from src.price_fetcher import PriceFetcher, get_stock_price
+from src.utils import setup_logging, validate_date_format, print_asset_summary, get_option_multiplier
+from src.config import settings
+from src.exchange_rate_handler import exchange_handler
 
 
 @dataclass
@@ -52,10 +46,7 @@ class BrokerStatementProcessor:
     
     def __init__(self):
         """Initialize the processor with PDF, LLM, price fetcher and excel processor instances."""
-        try:
-            from .llm_handler import LLMHandler
-        except (ImportError, ValueError):
-            from llm_handler import LLMHandler
+        from src.llm_handler import LLMHandler
         self.llm_handler = LLMHandler()
         self.pdf_processor = PDFProcessor(self.llm_handler)
         self.excel_parser = ExcelPositionParser()

@@ -4,14 +4,12 @@ HK Option Price Helper - Futu API Integration
 Provides price data for HK options using Futu API
 """
 
-from typing import Optional, Tuple
+import re
+from typing import Optional
+
 from loguru import logger
 
-try:
-    from .config import settings
-except (ImportError, ValueError):
-    from config import settings
-import re
+from src.config import settings
 
 
 def parse_hk_option_description(description: str) -> Optional[dict]:

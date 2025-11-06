@@ -8,16 +8,10 @@ import argparse
 from pathlib import Path
 from loguru import logger
 
-try:
-    from .broker_processor import BrokerStatementProcessor
-    from .data_persistence import save_processing_results
-    from .utils import validate_broker_folder, print_processing_info, ensure_output_directories
-    from .config import settings
-except (ImportError, ValueError):
-    from broker_processor import BrokerStatementProcessor
-    from data_persistence import save_processing_results
-    from utils import validate_broker_folder, print_processing_info, ensure_output_directories
-    from config import settings
+from src.broker_processor import BrokerStatementProcessor
+from src.data_persistence import save_processing_results
+from src.utils import validate_broker_folder, print_processing_info, ensure_output_directories
+from src.config import settings
 
 
 def create_argument_parser() -> argparse.ArgumentParser:

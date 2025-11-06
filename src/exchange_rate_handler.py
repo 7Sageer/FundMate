@@ -9,13 +9,11 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+
 from loguru import logger
 import requests
 
-try:
-    from .config import settings
-except (ImportError, ValueError):
-    from config import settings
+from src.config import settings
 
 
 class ExchangeRateHandler:

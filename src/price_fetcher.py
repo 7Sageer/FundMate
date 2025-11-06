@@ -11,18 +11,11 @@ import re
 from typing import Optional
 from loguru import logger
 
-try:
-    from .config import settings
-    from .exchange_rate_handler import exchange_handler
-    from .utils import get_option_multiplier
-    from .us_option_price_helper import get_us_option_price_from_futu
-    from .hk_option_price_helper import get_hk_option_price_from_futu
-except (ImportError, ValueError):
-    from config import settings
-    from exchange_rate_handler import exchange_handler
-    from utils import get_option_multiplier
-    from us_option_price_helper import get_us_option_price_from_futu
-    from hk_option_price_helper import get_hk_option_price_from_futu
+from src.config import settings
+from src.exchange_rate_handler import exchange_handler
+from src.utils import get_option_multiplier
+from src.us_option_price_helper import get_us_option_price_from_futu
+from src.hk_option_price_helper import get_hk_option_price_from_futu
 
 
 def normalize_symbol(raw_symbol: str) -> Optional[str]:

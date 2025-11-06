@@ -18,10 +18,7 @@ except ImportError:
     logger.error("Install pypdf: pip install pypdf")
     raise
 
-try:
-    from .prompt_templates import PROMPT_TEMPLATES
-except (ImportError, ValueError):
-    from prompt_templates import PROMPT_TEMPLATES
+from src.prompt_templates import PROMPT_TEMPLATES
 
 
 # Broker-specific configurations
