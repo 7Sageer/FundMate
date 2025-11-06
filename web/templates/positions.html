@@ -7,6 +7,8 @@
     <h2 class="page-title">Portfolio Positions</h2>
     <p class="date-display">Data as of: <strong>{{ date }}</strong></p>
 
+    {% set total_holdings = grouped_positions | sum(attribute='total_holding') if grouped_positions else 0 %}
+
     <!-- Filters -->
     <div class="filters">
         <div class="filter-group">
@@ -29,13 +31,11 @@
     <div class="summary-bar">
         <div class="summary-item">
             <span class="label">Total Positions:</span>
-            <span class="value" id="position-count">{{ positions | length }}</span>
+            <span class="value" id="position-count">{{ grouped_positions | length }}</span>
         </div>
         <div class="summary-item">
             <span class="label">Total Holdings:</span>
-            <span class="value" id="total-holdings">
-                {{ positions | sum(attribute='holding') | int if positions else 0 }}
-            </span>
+            <span class="value" id="total-holdings">{{ '{:,.2f}'.format(total_holdings) if total_holdings else '0' }}</span>
         </div>
     </div>
 
@@ -44,27 +44,71 @@
         <table class="data-table" id="positions-table">
             <thead>
                 <tr>
-                    <th onclick="sortTable(0)">Stock Code ↕</th>
-                    <th onclick="sortTable(1)">Broker ↕</th>
-                    <th onclick="sortTable(2)">Account ID ↕</th>
-                    <th class="text-right" onclick="sortTable(3)">Holding ↕</th>
-                    <th>Date</th>
+                    <th onclick="sortTable(0)">Stock ↕</th>
+                    <th class="text-right" onclick="sortTable(1)">Total Holding ↕</th>
+                    <th onclick="sortTable(2)">Brokers ↕</th>
+                    <th onclick="sortTable(3)">Date ↕</th>
                 </tr>
             </thead>
             <tbody>
-                {% for pos in positions %}
-                <tr>
-                    <td><strong>{{ pos.stock_code or pos.symbol or 'N/A' }}</strong></td>
-                    <td><span class="badge badge-{{ (pos.broker_name or pos.broker or 'default') | lower }}">{{ pos.broker_name or pos.broker }}</span></td>
-                    <td>{{ pos.account_id or 'N/A' }}</td>
-                    <td class="text-right">{{ pos.holding or pos.quantity or 0 }}</td>
-                    <td>{{ pos.date or 'N/A' }}</td>
+                {% for item in grouped_positions %}
+                <tr class="summary-row"
+                    data-row-index="{{ loop.index0 }}"
+                    data-stock="{{ (item.stock or 'N/A') | upper }}"
+                    data-total="{{ item.total_holding }}"
+                    data-date="{{ item.date }}">
+                    <td>
+                        <button class="expand-btn" type="button"
+                                aria-expanded="false"
+                                aria-controls="details-{{ loop.index0 }}"
+                                onclick="toggleDetails({{ loop.index0 }})"
+                                {% if not item.brokers %}disabled{% endif %}>+</button>
+                        <strong class="stock-name">{{ item.stock or 'N/A' }}</strong>
+                    </td>
+                    <td class="text-right">{{ '{:,.2f}'.format(item.total_holding) }}</td>
+                    <td>{{ item.broker_count }}</td>
+                    <td>{{ item.date or 'N/A' }}</td>
+                </tr>
+                <tr class="details-row" id="details-{{ loop.index0 }}" style="display: none;">
+                    <td colspan="4">
+                        <table class="nested-table">
+                            <thead>
+                                <tr>
+                                    <th>Broker</th>
+                                    <th>Accounts</th>
+                                    <th class="text-right">Holding</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for broker in item.brokers %}
+                                <tr>
+                                    <td>
+                                        <span class="badge">{{ broker.broker }}</span>
+                                    </td>
+                                    <td class="account-list">
+                                        {% if broker.accounts %}
+                                            {{ broker.accounts | join(', ') }}
+                                        {% else %}
+                                            N/A
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-right broker-holding">{{ '{:,.2f}'.format(broker.total_holding) }}</td>
+                                </tr>
+                                {% endfor %}
+                                {% if not item.brokers %}
+                                <tr>
+                                    <td colspan="3" class="empty-state text-center">No broker data available.</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
 
-        {% if not positions %}
+        {% if not grouped_positions %}
         <div class="empty-state">
             <p>No positions found for the selected filters.</p>
         </div>
@@ -91,70 +135,121 @@ function filterByBroker(broker) {
 function searchPositions() {
     const input = document.getElementById('search-input');
     const filter = input.value.toUpperCase();
-    const table = document.getElementById('positions-table');
-    const rows = table.getElementsByTagName('tr');
+    const summaryRows = document.querySelectorAll('#positions-table tbody tr.summary-row');
 
-    let visibleCount = 0;
-    let totalValue = 0;
+    summaryRows.forEach(row => {
+        const index = row.dataset.rowIndex;
+        const detailsRow = document.getElementById(`details-${index}`);
+        const stock = row.dataset.stock || '';
+        const detailsText = detailsRow ? detailsRow.textContent.toUpperCase() : '';
+        const matches = stock.indexOf(filter) > -1 || detailsText.indexOf(filter) > -1;
 
-    for (let i = 1; i < rows.length; i++) {
-        const symbolCell = rows[i].getElementsByTagName('td')[0];
-        const descCell = rows[i].getElementsByTagName('td')[1];
-
-        if (symbolCell && descCell) {
-            const symbolText = symbolCell.textContent || symbolCell.innerText;
-            const descText = descCell.textContent || descCell.innerText;
-
-            if (symbolText.toUpperCase().indexOf(filter) > -1 ||
-                descText.toUpperCase().indexOf(filter) > -1) {
-                rows[i].style.display = '';
-                visibleCount++;
-            } else {
-                rows[i].style.display = 'none';
+        row.style.display = matches ? '' : 'none';
+        if (detailsRow) {
+            if (!matches) {
+                detailsRow.style.display = 'none';
+                const toggleBtn = row.querySelector('.expand-btn');
+                if (toggleBtn) {
+                    toggleBtn.textContent = '+';
+                    toggleBtn.setAttribute('aria-expanded', 'false');
+                }
             }
         }
-    }
+    });
 
-    document.getElementById('position-count').textContent = visibleCount;
+    updateSummaryCounts();
 }
 
 function sortTable(columnIndex) {
     const table = document.getElementById('positions-table');
-    const rows = Array.from(table.rows).slice(1);
+    const tbody = table.tBodies[0];
+    const summaryRows = Array.from(tbody.querySelectorAll('tr.summary-row'));
     const currentDir = table.getAttribute('data-sort-dir') || 'asc';
     const newDir = currentDir === 'asc' ? 'desc' : 'asc';
 
-    rows.sort((a, b) => {
-        const aVal = a.cells[columnIndex].textContent.trim();
-        const bVal = b.cells[columnIndex].textContent.trim();
+    summaryRows.sort((a, b) => {
+        let aVal;
+        let bVal;
 
-        const aNum = parseFloat(aVal.replace(/[^0-9.-]/g, ''));
-        const bNum = parseFloat(bVal.replace(/[^0-9.-]/g, ''));
+        if (columnIndex === 0) {
+            aVal = (a.dataset.stock || '').toUpperCase();
+            bVal = (b.dataset.stock || '').toUpperCase();
+        } else if (columnIndex === 1) {
+            aVal = parseFloat(a.dataset.total || '0');
+            bVal = parseFloat(b.dataset.total || '0');
+        } else {
+            aVal = a.cells[columnIndex].textContent.trim();
+            bVal = b.cells[columnIndex].textContent.trim();
+        }
+
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+            return newDir === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+
+        const aNum = parseFloat(String(aVal).replace(/[^0-9.-]/g, ''));
+        const bNum = parseFloat(String(bVal).replace(/[^0-9.-]/g, ''));
 
         if (!isNaN(aNum) && !isNaN(bNum)) {
             return newDir === 'asc' ? aNum - bNum : bNum - aNum;
         }
 
-        return newDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        aVal = String(aVal).toUpperCase();
+        bVal = String(bVal).toUpperCase();
+        if (aVal < bVal) return newDir === 'asc' ? -1 : 1;
+        if (aVal > bVal) return newDir === 'asc' ? 1 : -1;
+        return 0;
     });
 
-    rows.forEach(row => table.tBodies[0].appendChild(row));
+    summaryRows.forEach(row => {
+        const index = row.dataset.rowIndex;
+        const detailsRow = document.getElementById(`details-${index}`);
+        tbody.appendChild(row);
+        if (detailsRow) {
+            tbody.appendChild(detailsRow);
+        }
+    });
+
     table.setAttribute('data-sort-dir', newDir);
 }
 
 function exportToCSV() {
-    const table = document.getElementById('positions-table');
-    let csv = [];
+    const summaryRows = document.querySelectorAll('#positions-table tbody tr.summary-row');
+    const csv = [['Stock', 'Broker', 'Accounts', 'Holding', 'Date']];
 
-    for (let row of table.rows) {
-        let rowData = [];
-        for (let cell of row.cells) {
-            rowData.push('"' + cell.textContent.trim().replace(/"/g, '""') + '"');
+    summaryRows.forEach(row => {
+        if (row.style.display === 'none') {
+            return;
         }
-        csv.push(rowData.join(','));
-    }
 
-    const csvContent = csv.join('\n');
+        const stock = row.querySelector('.stock-name').textContent.trim();
+        const total = row.dataset.total;
+        const date = row.cells[3].textContent.trim();
+        const index = row.dataset.rowIndex;
+        const detailsRow = document.getElementById(`details-${index}`);
+
+        if (!detailsRow) {
+            csv.push([stock, '', '', total, date]);
+            return;
+        }
+
+        const brokerRows = detailsRow.querySelectorAll('tbody tr');
+        if (!brokerRows.length) {
+            csv.push([stock, '', '', total, date]);
+            return;
+        }
+
+        brokerRows.forEach(brokerRow => {
+            const brokerName = brokerRow.querySelector('.badge') ? brokerRow.querySelector('.badge').textContent.trim() : '';
+            const accounts = brokerRow.querySelector('.account-list') ? brokerRow.querySelector('.account-list').textContent.trim() : '';
+            const holding = brokerRow.querySelector('.broker-holding') ? brokerRow.querySelector('.broker-holding').textContent.trim() : '';
+            csv.push([stock, brokerName, accounts, holding || total, date]);
+        });
+    });
+
+    const csvContent = csv.map(row =>
+        row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -162,5 +257,52 @@ function exportToCSV() {
     a.download = 'positions_{{ date }}.csv';
     a.click();
 }
+
+function toggleDetails(index) {
+    const detailsRow = document.getElementById(`details-${index}`);
+    const summaryRow = document.querySelector(`tr.summary-row[data-row-index="${index}"]`);
+
+    if (!detailsRow || summaryRow.style.display === 'none') {
+        return;
+    }
+
+    const toggleBtn = summaryRow.querySelector('.expand-btn');
+    const isHidden = detailsRow.style.display === 'none';
+
+    if (isHidden) {
+        detailsRow.style.display = 'table-row';
+        if (toggleBtn) {
+            toggleBtn.textContent = '-';
+            toggleBtn.setAttribute('aria-expanded', 'true');
+        }
+    } else {
+        detailsRow.style.display = 'none';
+        if (toggleBtn) {
+            toggleBtn.textContent = '+';
+            toggleBtn.setAttribute('aria-expanded', 'false');
+        }
+    }
+}
+
+function updateSummaryCounts() {
+    const summaryRows = document.querySelectorAll('#positions-table tbody tr.summary-row');
+    let visibleCount = 0;
+    let totalHoldings = 0;
+
+    summaryRows.forEach(row => {
+        if (row.style.display === 'none') {
+            return;
+        }
+        visibleCount += 1;
+        totalHoldings += parseFloat(row.dataset.total || '0');
+    });
+
+    document.getElementById('position-count').textContent = visibleCount;
+    document.getElementById('total-holdings').textContent = Number(totalHoldings || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateSummaryCounts();
+});
 </script>
 {% endblock %}

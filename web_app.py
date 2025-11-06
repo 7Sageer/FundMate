@@ -35,6 +35,25 @@ app.config['UPLOAD_FOLDER'].mkdir(parents=True, exist_ok=True)
 processing_jobs = {}
 processing_lock = threading.Lock()
 
+
+def _read_parquet_with_fallback(file_path: Path, description: str) -> pd.DataFrame:
+    """Read a Parquet file, retrying with compatible options if pyarrow raises."""
+    try:
+        return pd.read_parquet(file_path)
+    except Exception as err:
+        app.logger.warning("Primary parquet read failed for %s (%s); retrying with legacy dataset.", description, err)
+        try:
+            return pd.read_parquet(file_path, engine='pyarrow', use_legacy_dataset=True)
+        except Exception as legacy_err:
+            app.logger.warning("Legacy parquet read failed for %s (%s); falling back to pyarrow direct reader.", description, legacy_err)
+            try:
+                import pyarrow.parquet as pq  # type: ignore
+                table = pq.ParquetFile(file_path).read()
+                return table.to_pandas()
+            except Exception as final_err:
+                app.logger.error("All parquet read attempts failed for %s: %s", description, final_err)
+                raise
+
 # Broker name patterns for automatic detection
 BROKER_PATTERNS = {
     'IB': [r'ib[_\-\s]', r'interactive', r'ibkr'],
@@ -334,12 +353,22 @@ def load_portfolio_data(date: str) -> Dict:
     # Load cash summary
     cash_file = date_dir / f"cash_summary_{date}.parquet"
     if cash_file.exists():
-        data['cash'] = pd.read_parquet(cash_file)
+        try:
+            data['cash'] = _read_parquet_with_fallback(cash_file, f"cash summary {date}")
+        except Exception as err:
+            app.logger.error("Unable to read cash summary for %s: %s", date, err)
+            data['cash'] = pd.DataFrame()
+            data.setdefault('errors', []).append(f"Failed to load cash summary for {date}: {err}")
 
     # Load positions
     positions_file = date_dir / f"positions_{date}.parquet"
     if positions_file.exists():
-        data['positions'] = pd.read_parquet(positions_file)
+        try:
+            data['positions'] = _read_parquet_with_fallback(positions_file, f"positions {date}")
+        except Exception as err:
+            app.logger.error("Unable to read positions for %s: %s", date, err)
+            data['positions'] = pd.DataFrame()
+            data.setdefault('errors', []).append(f"Failed to load positions for {date}: {err}")
 
     # Load metadata
     metadata_file = date_dir / f"metadata_{date}.json"
@@ -397,23 +426,105 @@ def positions():
 
     positions_df = data['positions'].copy()
 
-    # Use broker_name column (actual column name in data)
-    broker_col = 'broker_name' if 'broker_name' in positions_df.columns else 'broker'
+    # Determine broker column; inject placeholder if missing
+    if 'broker_name' in positions_df.columns:
+        broker_col = 'broker_name'
+    elif 'broker' in positions_df.columns:
+        broker_col = 'broker'
+    else:
+        broker_col = 'broker'
+        positions_df[broker_col] = 'Unknown'
+        app.logger.warning("Positions dataset for %s missing broker column; defaulting to 'Unknown'.", selected_date)
+
+    # Ensure the source dataset used for dropdown has the same broker column
+    if 'positions' in data:
+        if 'broker_name' in data['positions'].columns:
+            source_broker_col = 'broker_name'
+        elif 'broker' in data['positions'].columns:
+            source_broker_col = 'broker'
+        else:
+            source_broker_col = broker_col
+            data['positions'][source_broker_col] = 'Unknown'
+            app.logger.warning("Original positions dataset for %s missing broker column; defaulting to 'Unknown'.", selected_date)
+    else:
+        source_broker_col = broker_col
+
+    # Normalize holdings to numeric values for aggregation
+    if 'holding' in positions_df.columns:
+        positions_df['holding'] = pd.to_numeric(positions_df['holding'], errors='coerce').fillna(0)
+    elif 'quantity' in positions_df.columns:
+        positions_df['holding'] = pd.to_numeric(positions_df['quantity'], errors='coerce').fillna(0)
+    else:
+        positions_df['holding'] = 0
+
+    # Normalize broker names for safe grouping
+    positions_df[broker_col] = positions_df[broker_col].fillna('Unknown').astype(str)
 
     # Apply broker filter
     if broker_filter != 'all':
         positions_df = positions_df[positions_df[broker_col] == broker_filter]
 
     # Get unique brokers for filter dropdown
-    brokers = sorted(data['positions'][broker_col].unique().tolist())
+    source_positions_df = data.get('positions')
+    if source_positions_df is not None and not source_positions_df.empty:
+        if source_broker_col not in source_positions_df.columns:
+            source_positions_df = source_positions_df.copy()
+            source_positions_df[source_broker_col] = 'Unknown'
+        brokers = sorted(
+            source_positions_df[source_broker_col]
+            .fillna('Unknown')
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+    else:
+        brokers = []
 
     # Convert to records for template
     positions_list = positions_df.to_dict('records')
+
+    # Aggregate positions by stock to support expandable broker view
+    grouped_positions = []
+    if not positions_df.empty:
+        # Ensure we have a stock identifier to group by
+        stock_column = 'stock_code' if 'stock_code' in positions_df.columns else 'symbol'
+        if stock_column not in positions_df.columns:
+            positions_df[stock_column] = 'N/A'
+
+        for stock_value, stock_group in positions_df.groupby(stock_column, dropna=False):
+            # Determine display name, falling back to symbol if needed
+            display_stock = stock_value
+            if pd.isna(display_stock) or display_stock in (None, ''):
+                if 'symbol' in stock_group.columns:
+                    display_stock = stock_group['symbol'].dropna().iloc[0] if stock_group['symbol'].notna().any() else 'N/A'
+                else:
+                    display_stock = 'N/A'
+
+            brokers_breakdown = []
+            for broker_name, broker_group in stock_group.groupby(broker_col):
+                account_ids = broker_group['account_id'].dropna().astype(str).unique().tolist() if 'account_id' in broker_group.columns else []
+                brokers_breakdown.append({
+                    'broker': broker_name or 'N/A',
+                    'total_holding': float(broker_group['holding'].sum()),
+                    'accounts': account_ids,
+                    'positions': broker_group.sort_values('account_id' if 'account_id' in broker_group.columns else 'date').to_dict('records')
+                })
+
+            grouped_positions.append({
+                'stock': display_stock,
+                'total_holding': float(stock_group['holding'].sum()),
+                'broker_count': len(brokers_breakdown),
+                'date': stock_group['date'].iloc[0] if 'date' in stock_group.columns else selected_date,
+                'brokers': sorted(brokers_breakdown, key=lambda b: b['broker'])
+            })
+
+    grouped_positions.sort(key=lambda item: item['stock'])
 
     return render_template('positions.html',
                          date=selected_date,
                          available_dates=available_dates,
                          positions=positions_list,
+                         grouped_positions=grouped_positions,
                          brokers=brokers,
                          selected_broker=broker_filter)
 

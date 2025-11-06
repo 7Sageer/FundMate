@@ -246,6 +246,51 @@ main.container {
     border-top: 2px solid var(--border-color);
 }
 
+.summary-row button.expand-btn {
+    margin-right: 0.5rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+    background-color: var(--surface);
+    cursor: pointer;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.summary-row button.expand-btn[disabled] {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.details-row {
+    background-color: var(--background);
+}
+
+.nested-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.nested-table th,
+.nested-table td {
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.5rem;
+}
+
+.nested-table .badge {
+    font-size: 0.7rem;
+}
+
+.nested-table .account-list {
+    color: var(--text-secondary);
+}
+
+.nested-table .text-center {
+    text-align: center;
+}
+
 /* Comparison Table */
 .comparison-table-wrapper {
     overflow-x: auto;
